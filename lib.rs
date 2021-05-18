@@ -4,6 +4,7 @@ use ink_lang as ink;
 
 #[ink::contract]
 mod erc20 {
+
     #[cfg(not(feature = "ink-as-dependency"))]
     use ink_storage::collections::HashMap;
 
@@ -12,6 +13,8 @@ mod erc20 {
     pub struct Erc20 {
         total_supply: Balance,
         balances: HashMap<AccountId, Balance>,
+        // stores (owner, spender) -> allowed balance
+        allowances: HashMap<(AccountId, AccountId), Balance>,
     }
 
     #[ink(event)]
@@ -20,13 +23,23 @@ mod erc20 {
         from: Option<AccountId>,
         #[ink(topic)]
         to: Option<AccountId>,
+        #[ink(topic)]
+        value: Balance,
+    }
+    #[ink(event)]
+    pub struct Approval {
+        #[ink(topic)]
+        owner: AccountId,
+        #[ink(topic)]
+        spender: AccountId,
+        #[ink(topic)]
         value: Balance,
     }
 
     impl Erc20 {
         #[ink(constructor)]
         pub fn new(initial_supply: Balance) -> Self {
-            let mut balances = HashMap::new();
+            let mut balances: HashMap<AccountId, Balance> = HashMap::new();
             let caller = Self::env().caller();
 
             // initial supply
@@ -42,6 +55,7 @@ mod erc20 {
             Self {
                 total_supply: initial_supply,
                 balances,
+                allowances: HashMap::new(),
             }
         }
 
@@ -60,7 +74,44 @@ mod erc20 {
             self.transfer_from_to(self.env().caller(), to, value)
         }
 
-        // private methods
+        #[ink(message)]
+        pub fn approve(&mut self, spender: AccountId, value: Balance) -> bool {
+            let owner = self.env().caller();
+            self.allowances.insert((owner, spender), value);
+
+            self.env().emit_event(Approval {
+                owner,
+                spender,
+                value,
+            });
+
+            true
+        }
+
+        #[link(message)]
+        pub fn allowance(&self, owner: AccountId, spender: AccountId) -> Balance {
+            self.allowance_of_or_zero(owner, spender)
+        }
+
+        #[ink(message)]
+        pub fn transfer_from(&mut self, from: AccountId, to: AccountId, value: Balance) -> bool {
+            let spender = self.env().caller();
+            let allowance = self.allowance(from, spender);
+
+            // if spender does not have enough allowance, early exit
+            if allowance < value {
+                return false;
+            }
+
+            self.transfer_from_to(from, to, value);
+            self.allowances.insert((from, spender), allowance - value);
+
+            true
+        }
+
+        /**
+         * Private methods
+         * */
         fn balance_of_or_zero(&self, owner: &AccountId) -> Balance {
             *self.balances.get(owner).unwrap_or(&0)
         }
@@ -77,6 +128,7 @@ mod erc20 {
                 return false;
             }
 
+            // update balances
             self.set_balance_of(from, from_balance - value);
             self.set_balance_of(to, to_balance + value);
 
@@ -87,6 +139,10 @@ mod erc20 {
             });
 
             true
+        }
+
+        fn allowance_of_or_zero(&self, owner: AccountId, spender: AccountId) -> Balance {
+            *self.allowances.get(&(owner, spender)).unwrap_or(&0)
         }
     }
 
