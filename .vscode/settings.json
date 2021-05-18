@@ -1,0 +1,5 @@
+{
+  "rust-analyzer.updates.channel": "nightly",
+  "rust-analyzer.checkOnSave.command": "check +nightly",
+  "rust-analyzer.cargo.runBuildScripts": true
+}
