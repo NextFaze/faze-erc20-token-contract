@@ -90,21 +90,28 @@ mod erc20 {
 
         #[link(message)]
         pub fn allowance(&self, owner: AccountId, spender: AccountId) -> Balance {
-            self.allowance_of_or_zero(owner, spender)
+            self.allowance_of_or_zero(&owner, &spender)
         }
 
         #[ink(message)]
         pub fn transfer_from(&mut self, from: AccountId, to: AccountId, value: Balance) -> bool {
-            let spender = self.env().caller();
-            let allowance = self.allowance(from, spender);
+            let owner = self.env().caller();
+            let allowance = self.allowance(owner, from);
+
+            println!("Current allowance: {}", &allowance);
 
             // if spender does not have enough allowance, early exit
             if allowance < value {
                 return false;
             }
 
+            // check if the spender has enough amount
+            if self.balance_of(from) < value {
+                return false;
+            }
+
             self.transfer_from_to(from, to, value);
-            self.allowances.insert((from, spender), allowance - value);
+            self.allowances.insert((owner, from), allowance - value);
 
             true
         }
@@ -141,8 +148,8 @@ mod erc20 {
             true
         }
 
-        fn allowance_of_or_zero(&self, owner: AccountId, spender: AccountId) -> Balance {
-            *self.allowances.get(&(owner, spender)).unwrap_or(&0)
+        fn allowance_of_or_zero(&self, owner: &AccountId, spender: &AccountId) -> Balance {
+            *self.allowances.get(&(*owner, *spender)).unwrap_or(&0)
         }
     }
 
@@ -179,6 +186,57 @@ mod erc20 {
             // after
             assert_eq!(erc20.balance_of(AccountId::from([0x1; 32])), 81);
             assert_eq!(erc20.balance_of(AccountId::from([0x2; 32])), 19);
+        }
+
+        #[ink::test]
+        fn transfer_with_allowance_works() {
+            let mut contract = Erc20::new(100);
+            let account_a = AccountId::from([0x1; 32]);
+            let account_b = AccountId::from([0x2; 32]);
+            let account_c = AccountId::from([0x3; 32]);
+
+            // before
+            assert_eq!(contract.balance_of(account_a), 100);
+            assert_eq!(contract.balance_of(account_b), 0);
+            assert_eq!(contract.balance_of(account_c), 0);
+
+            // transfer funds to other user
+            contract.transfer(account_b, 80);
+            assert_eq!(contract.balance_of(account_a), 20);
+            assert_eq!(contract.balance_of(account_b), 80);
+
+            // approve
+            contract.approve(account_b, 200);
+            assert_eq!(contract.allowance(account_a, account_b), 200);
+
+            // initiate transfer
+            assert!(contract.transfer_from(account_b, account_c, 50));
+
+            // after
+            assert_eq!(contract.balance_of(account_a), 20);
+            assert_eq!(contract.balance_of(account_b), 30);
+            assert_eq!(contract.balance_of(account_c), 50);
+            assert_eq!(contract.allowance(account_a, account_b), 150);
+        }
+
+        #[ink::test]
+        fn non_approved_transfer_does_not_work() {
+            let mut contract = Erc20::new(100);
+
+            // before
+            assert_eq!(contract.balance_of(AccountId::from([0x1; 32])), 100);
+            assert_eq!(contract.balance_of(AccountId::from([0x2; 32])), 0);
+
+            // transfer before approval
+            assert!(!contract.transfer_from(
+                AccountId::from([0x1; 32]),
+                AccountId::from([0x0; 32]),
+                50
+            ));
+
+            // before, same as before
+            assert_eq!(contract.balance_of(AccountId::from([0x1; 32])), 100);
+            assert_eq!(contract.balance_of(AccountId::from([0x2; 32])), 0);
         }
     }
 }
