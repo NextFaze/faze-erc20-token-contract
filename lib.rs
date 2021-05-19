@@ -98,8 +98,6 @@ mod erc20 {
             let owner = self.env().caller();
             let allowance = self.allowance(owner, from);
 
-            println!("Current allowance: {}", &allowance);
-
             // if spender does not have enough allowance, early exit
             if allowance < value {
                 return false;
